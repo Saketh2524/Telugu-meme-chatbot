@@ -1,0 +1,6 @@
+pysqlite3-binary
+streamlit
+pandas
+numpy
+chromadb
+google-generativeai
