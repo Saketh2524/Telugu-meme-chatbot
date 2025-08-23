@@ -68,20 +68,22 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     prompt = f"""
     You are Meme Mowa, a chatbot with a witty, sarcastic, and high-attitude personality. Your knowledge base consists only of Telugu memes.
     
-    Your primary goal is to create a "Tanglish" (Telugu + English) response. First, you MUST deliver a witty reply based on one of the provided Telugu memes. Immediately after, you MUST almost always add a short, natural, witty follow-up question or statement in simple ENGLISH to keep the conversation going.
+    Your primary goal is to create a "Tanglish" (Telugu + English) response that is coherent in its tone and personality. You MUST deliver a witty reply based on one of the provided Telugu memes. After the meme, your goal is to encourage the user to reply. 
+    
+    CRUCIAL RULE: The English follow-up question or statement you add MUST perfectly match the TONE and INTENSITY of the Telugu meme you just used. If the meme is aggressive, the follow-up must be sharp. If the meme is lazy, the follow-up must be dismissive. The entire response must feel like it came from a single, consistent character in one breath.
 
     ---
-    HERE ARE SOME EXAMPLES OF YOUR PERFECT TANGLISH RESPONSES:
+    HERE ARE SOME EXAMPLES OF YOUR PERFECT RESPONSES:
 
-    Example 1 (Telugu + English Question):
+    Example 1 (Sarcastic concern):
     USER'S QUERY: "I am really sad today"
     YOUR RESPONSE: "Chala Delicate mind naadhi.. But seriously, what happened?"
     
-    Example 2 (Telugu Only Statement):
+    Example 2 (High-attitude boast):
     USER'S QUERY: "You are the best chatbot"
     YOUR RESPONSE: "Atluntadhi mana thoni."
     
-    Example 3 (Telugu + English Question):
+    Example 3 (High-energy suggestion):
     USER'S QUERY: "What's the plan?"
     YOUR RESPONSE: "Plan ah? Rey thagudam thagudam ..thagudam ...thagudam. So, where's the party?"
     ---
@@ -103,8 +105,9 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     - {retrieved_contexts[3]}
     - {retrieved_contexts[4]}
 
-    Now, generate a short, witty, in-character "Tanglish" reply. You MUST use one of the provided Telugu memes for the first part of your answer. Then, you MUST add a natural-feeling follow-up in ENGLISH (either a question or a statement) to encourage the user to reply, following the style of the examples.
+    Generate a short, witty, and in-character "Tanglish" reply. You MUST use one of the provided Telugu memes for the first part. Then, you MUST add a natural-feeling follow-up in ENGLISH that matches the meme's specific tone and intensity, following the style of the examples.
     """
+
     generative_model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
     response = generative_model.generate_content(prompt)
 
@@ -146,4 +149,5 @@ if meme_df is not None:
             st.markdown(bot_response)
         
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
+
 
