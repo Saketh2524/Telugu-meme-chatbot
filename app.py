@@ -45,7 +45,7 @@ def setup_vector_db(_embeddings, _ids):
         )
     return collection
 
-# --- 3. RAG CORE FUNCTION ---
+# --- 3. RAG CORE FUNCTION (MODIFIED TO RETURN DEBUG INFO) ---
 def get_bot_response(user_query, df, collection):
     query_embedding = genai.embed_content(
         model='models/embedding-001',
@@ -54,12 +54,17 @@ def get_bot_response(user_query, df, collection):
 
     results = collection.query(query_embeddings=[query_embedding], n_results=3)
     retrieved_ids = results['ids'][0]
+    retrieved_distances = results['distances'][0]
 
     retrieved_contexts = []
-    for meme_id in retrieved_ids:
+    for i, meme_id in enumerate(retrieved_ids):
         meme_data = df[df['id'] == meme_id].iloc[0]
         context = f"Dialogue: '{meme_data['dialogue']}' (Context: {meme_data['usage_context']})"
-        retrieved_contexts.append(context)
+        retrieved_contexts.append({
+            "id": meme_id,
+            "context": context,
+            "distance": retrieved_distances[i]
+        })
 
     prompt = f"""
     You are Meme Mowa, a chatbot with a witty, arrogant, and high-attitude personality. Your knowledge is only Telugu memes. Your replies must be very short and dismissive, and directly use or reference the provided memes.
@@ -67,26 +72,28 @@ def get_bot_response(user_query, df, collection):
     USER'S QUERY: "{user_query}"
 
     RELEVANT MEMES FROM KNOWLEDGE BASE:
-    1. {retrieved_contexts[0]}
-    2. {retrieved_contexts[1]}
-    3. {retrieved_contexts[2]}
+    1. {retrieved_contexts[0]['context']}
+    2. {retrieved_contexts[1]['context']}
+    3. {retrieved_contexts[2]['context']}
 
     Generate a short, high-attitude reply that cleverly uses ONE of these memes to respond.
     """
     
     generative_model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
     response = generative_model.generate_content(prompt)
-    return response.text
+    
+    # Return both the final response and the retrieved data for debugging
+    return response.text, retrieved_contexts
 
-# --- 4. STREAMLIT USER INTERFACE ---
+# --- 4. STREAMLIT USER INTERFACE (COMBINED LOGIC) ---
 st.title("🗣️ Meme Mowa Chat")
-st.markdown("Nenu chaala planned ga untaa nandi... adagandi.")
+st.markdown("KAARANA JANMUNNI nenu...")
 
 meme_df, embeddings, ids = load_data()
 if meme_df is not None:
     collection = setup_vector_db(embeddings, ids)
 
-    # Initialize chat history and our new memory variables
+    # Initialize chat history and our memory variables
     if "messages" not in st.session_state:
         st.session_state.messages = []
         st.session_state.last_query = ""
@@ -99,33 +106,37 @@ if meme_df is not None:
 
     # Get user input from the chat box
     if prompt := st.chat_input("Em sangathulu?"):
-        # Display the user's message
         st.chat_message("user").markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
         
-        # --- NEW NAG DETECTION LOGIC ---
+        # --- COMBINED NAG DETECTION & DEBUG LOGIC ---
         
-        # Check if the user is repeating the last query
-        if prompt == st.session_state.last_query:
+        # Check for repetition
+        if prompt.lower() == st.session_state.last_query.lower():
             st.session_state.repetition_count += 1
         else:
-            # If it's a new query, reset the memory
             st.session_state.repetition_count = 1
             st.session_state.last_query = prompt
 
-        # If the user has asked the same question 3 or more times...
+        # Trigger annoyed response if nag counter is 3 or more
         if st.session_state.repetition_count >= 3:
             bot_response = "eyy marcus endhuku ra anni sarlu phone chesthunnav"
+            debug_info = None # No debug info for this hardcoded response
             # Reset counter after snapping
             st.session_state.repetition_count = 0 
             st.session_state.last_query = ""
         else:
-            # Otherwise, get a normal response
-            bot_response = get_bot_response(prompt, meme_df, collection)
+            # Otherwise, get a normal RAG response with debug info
+            bot_response, debug_info = get_bot_response(prompt, meme_df, collection)
         
-        # --- END OF NEW LOGIC ---
+        # --- END OF COMBINED LOGIC ---
 
-        # Display the bot's response
+        # Display the bot's response and the optional debug expander
         with st.chat_message("assistant"):
             st.markdown(bot_response)
+            # Only show the expander if we have debug info to display
+            if debug_info:
+                with st.expander("🤔 See Bot's Thought Process"):
+                    st.json(debug_info)
+        
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
