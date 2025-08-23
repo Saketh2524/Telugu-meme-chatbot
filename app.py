@@ -123,15 +123,15 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     
     return response.text, retrieved_ids, retrieved_distances
 
-# --- 4. STREAMLIT UI (UPDATED FOR BETTER DEBUGGING) ---
-st.title("🗣️ Meme Mowa")
+# --- 4. STREAMLIT UI ---
+st.title("🗣️ Meme Mowa Chat")
 st.markdown("KAARANA JANMUNNI nenu...")
 
 meme_df, embeddings, ids = load_data()
 if meme_df is not None:
     collection = setup_vector_db(embeddings, ids)
 
-    # --- THIS IS THE CORRECTED, ROBUST INITIALIZATION ---
+    # Robust initialization for all session state variables
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "used_memes" not in st.session_state:
@@ -141,16 +141,58 @@ if meme_df is not None:
     if "repetition_count" not in st.session_state:
         st.session_state.repetition_count = 0
 
+    # Display chat history
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
+    # Handle user input
     if prompt := st.chat_input("Em sangathulu?"):
         st.chat_message("user").markdown(prompt)
         
-        # --- ROBUST NAG DETECTION LOGIC ---
+        # Nag detection logic
         if prompt.strip().lower() == st.session_state.last_query.strip().lower():
             st.session_state.repetition_count += 1
         else:
             st.session_state.repetition_count = 1
-            st.session_state
+            st.session_state.last_query = prompt.strip()
+
+        if st.session_state.repetition_count >= 3:
+            bot_response = "**eyy marcus endhuku ra anni sarlu phone chesthunnav**"
+            retrieved_ids = ["TILLU_002"] 
+            retrieved_distances = [0.0]
+            st.session_state.repetition_count = 0 
+            st.session_state.last_query = ""
+        else:
+            bot_response, retrieved_ids, retrieved_distances = get_bot_response(
+                prompt, 
+                meme_df, 
+                collection,
+                chat_history=st.session_state.messages,
+                used_memes=list(st.session_state.used_memes)
+            )
+        
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state.used_memes.append(retrieved_ids[0])
+        
+        with st.chat_message("assistant"):
+            st.markdown(bot_response)
+            
+            with st.expander("🤔 See Bot's Thought Process"):
+                debug_info = []
+                for i, meme_id in enumerate(retrieved_ids):
+                    if meme_id in meme_df['id'].values:
+                        debug_info.append({
+                            "id": meme_id,
+                            "distance": retrieved_distances[i],
+                            "context": meme_df[meme_df['id'] == meme_id].iloc[0].to_dict()
+                        })
+                    else:
+                        debug_info.append({
+                            "id": meme_id,
+                            "distance": 0.0,
+                            "context": "Hardcoded response for nag detection."
+                        })
+                st.json(debug_info)
+        
+        st.session_state.messages.append({"role": "assistant", "content": bot_response})
