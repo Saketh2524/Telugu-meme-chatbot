@@ -115,8 +115,6 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
 
     FINAL INSTRUCTION: {final_command}
     """
-
-    
     generative_model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
     response = generative_model.generate_content(prompt)
 
@@ -163,7 +161,8 @@ if meme_df is not None:
                     debug_info.append({
                         "id": meme_id,
                         "distance": retrieved_distances[i],
-                        "context": df[df['id'] == meme_id].iloc[0].to_dict()
+                        # --- THIS IS THE CORRECTED LINE ---
+                        "context": meme_df[meme_df['id'] == meme_id].iloc[0].to_dict()
                     })
                 st.json(debug_info)
         
