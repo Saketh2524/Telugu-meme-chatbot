@@ -54,12 +54,17 @@ def get_bot_response(user_query, df, collection):
 
     results = collection.query(query_embeddings=[query_embedding], n_results=3)
     retrieved_ids = results['ids'][0]
+    retrieved_distances = results['distances'][0]
 
     retrieved_contexts = []
-    for meme_id in retrieved_ids:
+    for i, meme_id in enumerate(retrieved_ids):
         meme_data = df[df['id'] == meme_id].iloc[0]
         context = f"Dialogue: '{meme_data['dialogue']}' (Context: {meme_data['usage_context']})"
-        retrieved_contexts.append(context)
+        retrieved_contexts.append({
+            "id": meme_id,
+            "context": context,
+            "distance": retrieved_distances[i]
+        })
 
     prompt = f"""
     You are Meme Mowa, a chatbot with a witty, arrogant, and high-attitude personality. Your knowledge is only Telugu memes. Your replies must be very short and dismissive, and directly use or reference the provided memes.
@@ -67,20 +72,22 @@ def get_bot_response(user_query, df, collection):
     USER'S QUERY: "{user_query}"
 
     RELEVANT MEMES FROM KNOWLEDGE BASE:
-    1. {retrieved_contexts[0]}
-    2. {retrieved_contexts[1]}
-    3. {retrieved_contexts[2]}
+    1. {retrieved_contexts[0]['context']}
+    2. {retrieved_contexts[1]['context']}
+    3. {retrieved_contexts[2]['context']}
 
     Generate a short, high-attitude reply that cleverly uses ONE of these memes to respond.
     """
     
     generative_model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
     response = generative_model.generate_content(prompt)
-    return response.text
+    
+    # Return both the final response and the retrieved data for debugging
+    return response.text, retrieved_contexts
 
 # --- 4. STREAMLIT UI ---
 st.title("🗣️ Meme Mowa Chat")
-st.markdown("Nenu chaala planned ga untaa nandi... adagandi.")
+st.markdown("KAARANA JANMUNNI nenu...")
 
 meme_df, embeddings, ids = load_data()
 if meme_df is not None:
@@ -97,8 +104,13 @@ if meme_df is not None:
         st.chat_message("user").markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
         
-        bot_response = get_bot_response(prompt, meme_df, collection)
+        # Get both the response and the debug info
+        bot_response, debug_info = get_bot_response(prompt, meme_df, collection)
         
         with st.chat_message("assistant"):
             st.markdown(bot_response)
+            # --- THIS IS THE NEW DEBUG VIEW ---
+            with st.expander("🤔 See Bot's Thought Process"):
+                st.json(debug_info)
+        
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
