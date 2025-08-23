@@ -54,17 +54,12 @@ def get_bot_response(user_query, df, collection):
 
     results = collection.query(query_embeddings=[query_embedding], n_results=3)
     retrieved_ids = results['ids'][0]
-    retrieved_distances = results['distances'][0]
 
     retrieved_contexts = []
-    for i, meme_id in enumerate(retrieved_ids):
+    for meme_id in retrieved_ids:
         meme_data = df[df['id'] == meme_id].iloc[0]
         context = f"Dialogue: '{meme_data['dialogue']}' (Context: {meme_data['usage_context']})"
-        retrieved_contexts.append({
-            "id": meme_id,
-            "context": context,
-            "distance": retrieved_distances[i]
-        })
+        retrieved_contexts.append(context)
 
     prompt = f"""
     You are Meme Mowa, a chatbot with a witty, arrogant, and high-attitude personality. Your knowledge is only Telugu memes. Your replies must be very short and dismissive, and directly use or reference the provided memes.
@@ -72,45 +67,65 @@ def get_bot_response(user_query, df, collection):
     USER'S QUERY: "{user_query}"
 
     RELEVANT MEMES FROM KNOWLEDGE BASE:
-    1. {retrieved_contexts[0]['context']}
-    2. {retrieved_contexts[1]['context']}
-    3. {retrieved_contexts[2]['context']}
+    1. {retrieved_contexts[0]}
+    2. {retrieved_contexts[1]}
+    3. {retrieved_contexts[2]}
 
     Generate a short, high-attitude reply that cleverly uses ONE of these memes to respond.
     """
     
     generative_model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
     response = generative_model.generate_content(prompt)
-    
-    # Return both the final response and the retrieved data for debugging
-    return response.text, retrieved_contexts
+    return response.text
 
-# --- 4. STREAMLIT UI ---
+# --- 4. STREAMLIT USER INTERFACE ---
 st.title("🗣️ Meme Mowa Chat")
-st.markdown("KAARANA JANMUNNI nenu...")
+st.markdown("Nenu chaala planned ga untaa nandi... adagandi.")
 
 meme_df, embeddings, ids = load_data()
 if meme_df is not None:
     collection = setup_vector_db(embeddings, ids)
 
+    # Initialize chat history and our new memory variables
     if "messages" not in st.session_state:
         st.session_state.messages = []
+        st.session_state.last_query = ""
+        st.session_state.repetition_count = 0
 
+    # Display past chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
+    # Get user input from the chat box
     if prompt := st.chat_input("Em sangathulu?"):
+        # Display the user's message
         st.chat_message("user").markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
         
-        # Get both the response and the debug info
-        bot_response, debug_info = get_bot_response(prompt, meme_df, collection)
+        # --- NEW NAG DETECTION LOGIC ---
         
+        # Check if the user is repeating the last query
+        if prompt == st.session_state.last_query:
+            st.session_state.repetition_count += 1
+        else:
+            # If it's a new query, reset the memory
+            st.session_state.repetition_count = 1
+            st.session_state.last_query = prompt
+
+        # If the user has asked the same question 3 or more times...
+        if st.session_state.repetition_count >= 3:
+            bot_response = "eyy marcus endhuku ra anni sarlu phone chesthunnav"
+            # Reset counter after snapping
+            st.session_state.repetition_count = 0 
+            st.session_state.last_query = ""
+        else:
+            # Otherwise, get a normal response
+            bot_response = get_bot_response(prompt, meme_df, collection)
+        
+        # --- END OF NEW LOGIC ---
+
+        # Display the bot's response
         with st.chat_message("assistant"):
             st.markdown(bot_response)
-            # --- THIS IS THE NEW DEBUG VIEW ---
-            with st.expander("🤔 See Bot's Thought Process"):
-                st.json(debug_info)
-        
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
