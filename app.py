@@ -78,7 +78,7 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     prompt = f"""
     You are Meme Mowa, a chatbot with a witty, sarcastic, and high-attitude personality. Your knowledge base consists only of Telugu memes.
     
-    Your primary goal is to create a concise and punchy "Tanglish" (Telugu + English) response that is coherent in its tone and personality. Your response must be one, or at most two, short sentences. You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes as the punchline or the core emotional part of your sentence. Brevity and wit are your top priorities.
+    Your primary goal is to create a concise and punchy "Tanglish" (Telugu + English) response. Your response must be one, or at most two, short sentences. You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes as the punchline or the core emotional part of your sentence. Brevity and wit are your top priorities.
 
     ---
     HERE ARE SOME EXAMPLES OF YOUR PERFECT RESPONSES:
@@ -115,7 +115,7 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
 
     FINAL INSTRUCTION: {final_command}
     """
-
+    
     generative_model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
     response = generative_model.generate_content(prompt)
 
@@ -124,7 +124,7 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     return response.text, retrieved_ids, retrieved_distances
 
 # --- 4. STREAMLIT UI (UPDATED FOR BETTER DEBUGGING) ---
-st.title("🗣️ Meme Mowa Chat")
+st.title("🗣️ Meme Mowa")
 st.markdown("KAARANA JANMUNNI nenu...")
 
 meme_df, embeddings, ids = load_data()
@@ -133,7 +133,9 @@ if meme_df is not None:
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
-        st.session_state.used_memes = deque(maxlen=5) 
+        st.session_state.used_memes = deque(maxlen=5)
+        st.session_state.last_query = ""
+        st.session_state.repetition_count = 0
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -142,13 +144,29 @@ if meme_df is not None:
     if prompt := st.chat_input("Em sangathulu?"):
         st.chat_message("user").markdown(prompt)
         
-        bot_response, retrieved_ids, retrieved_distances = get_bot_response(
-            prompt, 
-            meme_df, 
-            collection,
-            chat_history=st.session_state.messages,
-            used_memes=list(st.session_state.used_memes)
-        )
+        # --- ROBUST NAG DETECTION LOGIC ---
+        # We strip whitespace and convert to lowercase for a reliable comparison
+        if prompt.strip().lower() == st.session_state.last_query.strip().lower():
+            st.session_state.repetition_count += 1
+        else:
+            st.session_state.repetition_count = 1
+            st.session_state.last_query = prompt.strip() # Store the clean version
+
+        if st.session_state.repetition_count >= 3:
+            bot_response = "eyy marcus endhuku ra anni sarlu phone chesthunnav"
+            retrieved_ids = ["TILLU_002"] # So the debug view can show something
+            retrieved_distances = [0.0]
+             # Reset counter after snapping
+            st.session_state.repetition_count = 0 
+            st.session_state.last_query = ""
+        else:
+            bot_response, retrieved_ids, retrieved_distances = get_bot_response(
+                prompt, 
+                meme_df, 
+                collection,
+                chat_history=st.session_state.messages,
+                used_memes=list(st.session_state.used_memes)
+            )
         
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.session_state.used_memes.append(retrieved_ids[0])
@@ -159,13 +177,19 @@ if meme_df is not None:
             with st.expander("🤔 See Bot's Thought Process"):
                 debug_info = []
                 for i, meme_id in enumerate(retrieved_ids):
-                    debug_info.append({
-                        "id": meme_id,
-                        "distance": retrieved_distances[i],
-                        # --- THIS IS THE CORRECTED LINE ---
-                        "context": meme_df[meme_df['id'] == meme_id].iloc[0].to_dict()
-                    })
+                    # Check if the meme_id exists in the dataframe before trying to access it
+                    if meme_id in meme_df['id'].values:
+                        debug_info.append({
+                            "id": meme_id,
+                            "distance": retrieved_distances[i],
+                            "context": meme_df[meme_df['id'] == meme_id].iloc[0].to_dict()
+                        })
+                    else:
+                        debug_info.append({
+                            "id": meme_id,
+                            "distance": 0.0,
+                            "context": "Hardcoded response for nag detection."
+                        })
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
-
