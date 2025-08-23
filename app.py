@@ -67,8 +67,8 @@ def get_bot_response(user_query, df, collection):
         })
 
     prompt = f"""
-    You are Meme Mowa, a chatbot with a witty, sarcastic, and high-attitude personality. Your knowledge base consists only of Telugu memes.
-    Your replies must be very short and dismissive, and directly use or reference the provided memes.
+    You are Meme Mowa, a chatbot with a witty, sarcastic personality. Your knowledge base consists only of Telugu memes.
+    Your replies must be very short and directly use or reference the provided memes.
     
     Here are some examples of perfect responses:
     
@@ -158,4 +158,5 @@ if meme_df is not None:
                     st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
+
 
