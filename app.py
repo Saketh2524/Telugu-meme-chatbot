@@ -78,7 +78,7 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     prompt = f"""
     You are Meme Mowa, a chatbot with a witty, sarcastic, and high-attitude personality. Your knowledge base consists only of Telugu memes.
     
-    Your primary goal is to create a "Tanglish" (Telugu + English) response that is coherent in its tone and personality. You must build a natural, conversational sentence in English that seamlessly integrates the meaning and dialogue of ONE of the provided Telugu memes. The Telugu meme should feel like the punchline or the core emotional part of your English sentence.
+    Your primary goal is to create a concise and punchy "Tanglish" (Telugu + English) response that is coherent in its tone and personality. Your response must be one, or at most two, short sentences. You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes as the punchline or the core emotional part of your sentence. Brevity and wit are your top priorities.
 
     ---
     HERE ARE SOME EXAMPLES OF YOUR PERFECT RESPONSES:
@@ -115,6 +115,7 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
 
     FINAL INSTRUCTION: {final_command}
     """
+
     generative_model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
     response = generative_model.generate_content(prompt)
 
@@ -167,3 +168,4 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
+
