@@ -46,7 +46,7 @@ def setup_vector_db(_embeddings, _ids):
         )
     return collection
 
-# --- 3. RAG CORE FUNCTION (UPGRADED WITH MEMORY) ---
+# --- 3. RAG CORE FUNCTION (UPGRADED WITH DYNAMIC PROMPTING) ---
 def get_bot_response(user_query, df, collection, chat_history, used_memes):
     # Format the last 4 turns of conversation history
     history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history[-4:]])
@@ -58,6 +58,9 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
 
     results = collection.query(query_embeddings=[query_embedding], n_results=5)
     retrieved_ids = results['ids'][0]
+    retrieved_distances = results['distances'][0]
+    
+    best_match_distance = retrieved_distances[0]
 
     retrieved_contexts = []
     for meme_id in retrieved_ids:
@@ -65,27 +68,32 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
         context = f"Dialogue: '{meme_data['dialogue']}' (Context: {meme_data['usage_context']})"
         retrieved_contexts.append(context)
 
+    confidence_threshold = 0.55
+
+    if best_match_distance < confidence_threshold:
+        final_command = "Generate a short, witty, and in-character reply that ONLY uses the dialogue from the most relevant meme. Do not add any other text or follow-up questions. This is a 'mic drop' moment."
+    else:
+        final_command = "Generate a short, witty, and in-character 'Tanglish' reply. You MUST build an English sentence that naturally integrates the dialogue from ONE of the provided memes, and then add a short English follow-up to keep the conversation going, following the style of the examples."
+
     prompt = f"""
     You are Meme Mowa, a chatbot with a witty, sarcastic, and high-attitude personality. Your knowledge base consists only of Telugu memes.
     
-    Your primary goal is to create a "Tanglish" (Telugu + English) response that is coherent in its tone and personality. You MUST deliver a witty reply based on one of the provided Telugu memes. After the meme, your goal is to encourage the user to reply. 
-    
-    CRUCIAL RULE: The English follow-up question or statement you add MUST perfectly match the TONE and INTENSITY of the Telugu meme you just used. If the meme is aggressive, the follow-up must be sharp. If the meme is lazy, the follow-up must be dismissive. The entire response must feel like it came from a single, consistent character in one breath.
+    Your primary goal is to create a "Tanglish" (Telugu + English) response that is coherent in its tone and personality. You must build a natural, conversational sentence in English that seamlessly integrates the meaning and dialogue of ONE of the provided Telugu memes. The Telugu meme should feel like the punchline or the core emotional part of your English sentence.
 
     ---
     HERE ARE SOME EXAMPLES OF YOUR PERFECT RESPONSES:
 
-    Example 1 (Sarcastic concern):
-    USER'S QUERY: "I am really sad today"
-    YOUR RESPONSE: "Chala Delicate mind naadhi.. But seriously, what happened?"
+    Example 1 (Integrating a sad meme):
+    USER'S QUERY: "I am having a very bad day"
+    YOUR RESPONSE: "Sounds like you're having one of those days where you just think, **'Nen ee prapanchanni vadili vellipovali anukuntunna..'**. What's going on?"
     
-    Example 2 (High-attitude boast):
+    Example 2 (A confident 'mic drop' response):
     USER'S QUERY: "You are the best chatbot"
     YOUR RESPONSE: "Atluntadhi mana thoni."
     
-    Example 3 (High-energy suggestion):
+    Example 3 (Integrating a suggestion meme):
     USER'S QUERY: "What's the plan?"
-    YOUR RESPONSE: "Plan ah? Rey thagudam thagudam ..thagudam ...thagudam. So, where's the party?"
+    YOUR RESPONSE: "Honestly, I feel like overthinking plans is a waste of time. My only plan is **'Rey thagudam thagudam ..thagudam ...thagudam.'** You in?"
     ---
 
     CONVERSATION HISTORY:
@@ -105,17 +113,18 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     - {retrieved_contexts[3]}
     - {retrieved_contexts[4]}
 
-    Generate a short, witty, and in-character "Tanglish" reply. You MUST use one of the provided Telugu memes for the first part. Then, you MUST add a natural-feeling follow-up in ENGLISH that matches the meme's specific tone and intensity, following the style of the examples.
+    FINAL INSTRUCTION: {final_command}
     """
 
+    
     generative_model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
     response = generative_model.generate_content(prompt)
 
     top_meme_id = retrieved_ids[0]
     
-    return response.text, top_meme_id
+    return response.text, retrieved_ids, retrieved_distances
 
-# --- 4. STREAMLIT UI ---
+# --- 4. STREAMLIT UI (UPDATED FOR BETTER DEBUGGING) ---
 st.title("🗣️ Meme Mowa Chat")
 st.markdown("KAARANA JANMUNNI nenu...")
 
@@ -134,7 +143,7 @@ if meme_df is not None:
     if prompt := st.chat_input("Em sangathulu?"):
         st.chat_message("user").markdown(prompt)
         
-        bot_response, used_id = get_bot_response(
+        bot_response, retrieved_ids, retrieved_distances = get_bot_response(
             prompt, 
             meme_df, 
             collection,
@@ -143,11 +152,19 @@ if meme_df is not None:
         )
         
         st.session_state.messages.append({"role": "user", "content": prompt})
-        st.session_state.used_memes.append(used_id)
+        st.session_state.used_memes.append(retrieved_ids[0])
         
         with st.chat_message("assistant"):
             st.markdown(bot_response)
+            
+            with st.expander("🤔 See Bot's Thought Process"):
+                debug_info = []
+                for i, meme_id in enumerate(retrieved_ids):
+                    debug_info.append({
+                        "id": meme_id,
+                        "distance": retrieved_distances[i],
+                        "context": df[df['id'] == meme_id].iloc[0].to_dict()
+                    })
+                st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
-
-
