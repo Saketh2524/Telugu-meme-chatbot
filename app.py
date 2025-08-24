@@ -36,7 +36,7 @@ def load_data():
 @st.cache_resource
 def setup_vector_db(_df, _embeddings, _ids):
     client = chromadb.Client()
-    collection_name = "memes_with_emotions_v2" 
+    collection_name = "memes_with_emotions_final" 
     if collection_name in [c.name for c in client.list_collections()]:
         client.delete_collection(name=collection_name)
 
@@ -52,17 +52,15 @@ def setup_vector_db(_df, _embeddings, _ids):
     return collection
 
 # --- 3. RAG CORE FUNCTION ---
-def get_bot_response(user_query, df, collection, chat_history):
+def get_bot_response(user_query, df, collection, chat_history, used_memes):
     history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history[-4:]])
 
     detected_emotion = detect_emotion(user_query)
     search_filter = None
     if detected_emotion:
         emotion_map = {
-            "Sadness": ["Sadness", "Trust", "Joy"],
-            "Anger": ["Anger", "Disgust", "Joy"],
-            "Joy": ["Joy", "Anticipation", "Trust"],
-            "Fear": ["Fear", "Trust", "Surprise"]
+            "Sadness": ["Sadness", "Trust", "Joy"], "Anger": ["Anger", "Disgust", "Joy"],
+            "Joy": ["Joy", "Anticipation", "Trust"], "Fear": ["Fear", "Trust", "Surprise"]
         }
         relevant_buckets = emotion_map.get(detected_emotion)
         if relevant_buckets:
@@ -74,12 +72,12 @@ def get_bot_response(user_query, df, collection, chat_history):
     )['embedding']
 
     results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=3,
-        where=search_filter
+        query_embeddings=[query_embedding], n_results=5, where=search_filter
     )
     retrieved_ids = results['ids'][0]
     retrieved_distances = results['distances'][0]
+    best_match_distance = retrieved_distances[0]
+    confidence_threshold = 0.55
 
     retrieved_contexts = []
     for meme_id in retrieved_ids:
@@ -87,32 +85,41 @@ def get_bot_response(user_query, df, collection, chat_history):
         context = f"Dialogue: '{meme_data['dialogue']}' (Context: {meme_data['usage_context']})"
         retrieved_contexts.append(context)
 
-    prompt = f"""
-    You are Meme Mowa, a chatbot with a witty, sarcastic, and high-attitude personality. Your knowledge base consists only of Telugu memes.
-    
-    Your primary goal is to create a "Tanglish" (Telugu + English) response that is coherent in its tone and personality. You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes. The Telugu meme should feel like the punchline or the core emotional part of your English sentence.
+    # --- DYNAMIC PROMPT LOGIC ---
+    if best_match_distance < confidence_threshold:
+        # High-confidence "Mic Drop" prompt
+        prompt = f"""
+        You are Meme Mowa. Your task is to respond using ONLY the dialogue from the most relevant meme provided.
+        The user said: "{user_query}"
+        The most relevant meme is: {retrieved_contexts[0]}
+        Your response must be the Telugu dialogue, enclosed in double asterisks for bolding. Nothing else.
+        """
+    else:
+        # Lower-confidence "Conversational" prompt with multi-meme logic
+        prompt = f"""
+        You are Meme Mowa, a chatbot with a witty, sarcastic, and high-attitude personality.
+        Your primary goal is to create a punchy "Tanglish" response that integrates a Telugu meme.
+        A CRUCIAL SKILL is to generate probing follow-up questions. After your main response (based on the first meme), look at the OTHER retrieved memes for inspiration to ask a clever follow-up question.
 
-    CRUCIAL STYLE NOTE: Do not simply translate the Telugu meme into English and then state the meme. Instead, build a unique English sentence that provides context or a setup for the Telugu meme as a punchline. The English part should add to the joke, not just repeat it.
+        ---
+        EXAMPLE of a compound response:
+        USER'S QUERY: "My friend is ignoring my calls."
+        YOUR RESPONSE: "Being ignored is the worst, it makes you feel like **'Naa paatiki nenu maadipoyina masala dosa tintunte..'**. But is this a 'my friend is busy' problem or a **'Chedagetthera yedava'** kind of problem?"
+        ---
 
-    ---
-    
-    CONVERSATION HISTORY:
-    {history_str}
-    
-    ---
-    
-    CURRENT USER'S QUERY: "{user_query}"
+        CONVERSATION HISTORY: {history_str}
+        RECENTLY USED MEMES (AVOID THESE): {', '.join(used_memes)}
+        CURRENT USER'S QUERY: "{user_query}"
+        RELEVANT MEMES (use #1 for response, others for follow-up):
+        - {retrieved_contexts[0]}
+        - {retrieved_contexts[1]}
+        - {retrieved_contexts[2]}
 
-    RELEVANT MEMES FROM KNOWLEDGE BASE (choose ONE to use):
-    - {retrieved_contexts[0]}
-    - {retrieved_contexts[1]}
-    - {retrieved_contexts[2]}
-
-    *** STRICT FINAL RULES ***
-    1. YOUR ENTIRE RESPONSE MUST BE 1-2 SENTENCES MAXIMUM. BE PUNCHY.
-    2. YOU ABSOLUTELY MUST NOT REPEAT THE USER'S QUERY.
-    3. The Telugu meme dialogue in your response MUST be bolded.
-    """
+        *** STRICT BEHAVIORAL RULES ***
+        1. YOUR ENTIRE RESPONSE MUST BE 1-2 SENTENCES MAXIMUM.
+        2. DO NOT repeat the user's query.
+        3. DO NOT use pet names like 'honey' or 'darling'.
+        """
     
     generative_model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
     response = generative_model.generate_content(prompt)
@@ -120,14 +127,14 @@ def get_bot_response(user_query, df, collection, chat_history):
     return response.text, retrieved_ids, retrieved_distances, detected_emotion
 
 def detect_emotion(user_query):
+    # This function remains the same
     try:
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
         prompt = f"""
-        Classify the user's query into ONE of the following 8 emotions: 
-        Joy, Sadness, Anger, Fear, Surprise, Trust, Disgust, Anticipation.
-        If the query is neutral or a simple question, respond with "Neutral".
-        User query: "{user_query}"
-        Respond with only the single emotion word.
+        Classify the user's query into ONE of the following: 
+        Joy, Sadness, Anger, Fear, Surprise, Trust, Disgust, Anticipation, Neutral.
+        Query: "{user_query}"
+        Respond with only the single word.
         """
         response = model.generate_content(prompt)
         detected_emotion = response.text.strip()
@@ -138,6 +145,7 @@ def detect_emotion(user_query):
     return None
 
 # --- 4. STREAMLIT UI ---
+# This section remains the same
 st.title("🗣️ Meme Mowa Chat")
 st.markdown("KAARANA JANMUNNI nenu...")
 
@@ -147,6 +155,9 @@ if meme_df is not None:
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
+        st.session_state.used_memes = deque(maxlen=5)
+        st.session_state.last_query = ""
+        st.session_state.repetition_count = 0
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -155,12 +166,30 @@ if meme_df is not None:
     if prompt := st.chat_input("Em sangathulu?"):
         st.chat_message("user").markdown(prompt)
         
-        bot_response, retrieved_ids, retrieved_distances, detected_emotion = get_bot_response(
-            prompt, 
-            meme_df, 
-            collection,
-            chat_history=st.session_state.messages
-        )
+        if prompt.strip().lower() == st.session_state.last_query.strip().lower():
+            st.session_state.repetition_count += 1
+        else:
+            st.session_state.repetition_count = 1
+            st.session_state.last_query = prompt.strip()
+
+        if st.session_state.repetition_count >= 3:
+            bot_response = "**eyy marcus endhuku ra anni sarlu phone chesthunnav**"
+            retrieved_ids = ["TILLU_002"] 
+            retrieved_distances = [0.0]
+            detected_emotion = "Anger"
+            st.session_state.repetition_count = 0 
+            st.session_state.last_query = ""
+        else:
+            bot_response, retrieved_ids, retrieved_distances, detected_emotion = get_bot_response(
+                prompt, 
+                meme_df, 
+                collection,
+                chat_history=st.session_state.messages,
+                used_memes=list(st.session_state.used_memes)
+            )
+        
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state.used_memes.append(retrieved_ids[0])
         
         with st.chat_message("assistant"):
             st.markdown(bot_response)
@@ -177,5 +206,4 @@ if meme_df is not None:
                         })
                 st.json(debug_info)
         
-        st.session_state.messages.append({"role": "user", "content": prompt})
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
