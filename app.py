@@ -46,9 +46,8 @@ def setup_vector_db(_embeddings, _ids):
         )
     return collection
 
-# --- 3. RAG CORE FUNCTION (UPGRADED WITH DYNAMIC PROMPTING) ---
-def get_bot_response(user_query, df, collection, chat_history, used_memes):
-    # Format the last 4 turns of conversation history
+# --- 3. RAG CORE FUNCTION (DEFINITIVE PROMPT) ---
+def get_bot_response(user_query, df, collection, chat_history):
     history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history[-4:]])
 
     query_embedding = genai.embed_content(
@@ -56,75 +55,44 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
         content=user_query
     )['embedding']
 
-    results = collection.query(query_embeddings=[query_embedding], n_results=5)
+    results = collection.query(query_embeddings=[query_embedding], n_results=3)
     retrieved_ids = results['ids'][0]
     retrieved_distances = results['distances'][0]
     
-    best_match_distance = retrieved_distances[0]
-
     retrieved_contexts = []
     for meme_id in retrieved_ids:
         meme_data = df[df['id'] == meme_id].iloc[0]
         context = f"Dialogue: '{meme_data['dialogue']}' (Context: {meme_data['usage_context']})"
         retrieved_contexts.append(context)
 
-    confidence_threshold = 0.55
-
-    if best_match_distance < confidence_threshold:
-        final_command = "Generate a short, witty, and in-character reply that ONLY uses the dialogue from the most relevant meme. Do not add any other text or follow-up questions. This is a 'mic drop' moment."
-    else:
-        final_command = "Generate a short, witty, and in-character 'Tanglish' reply. You MUST build an English sentence that naturally integrates the dialogue from ONE of the provided memes, and then add a short English follow-up to keep the conversation going, following the style of the examples."
-
     prompt = f"""
     You are Meme Mowa, a chatbot with a witty, sarcastic, and high-attitude personality. Your knowledge base consists only of Telugu memes.
     
-    Your primary goal is to create a concise and punchy "Tanglish" (Telugu + English) response. Your response must be one, or at most two, short sentences. You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes as the punchline or the core emotional part of your sentence. Brevity and wit are your top priorities.
-
-    **CRUCIAL RULES TO FOLLOW: 
-    1. Avoid using repetitive pet names like 'honey', 'dear', or 'sweetie'. Find more creative and witty ways to be condescending.**
-    2. DO NOT repeat the user's query back to them. Jump straight into your witty answer.
-
+    Your primary goal is to create a "Tanglish" (Telugu + English) response that is coherent in its tone and personality. You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes. The Telugu meme should feel like the punchline or the core emotional part of your English sentence.
 
     ---
-    HERE ARE SOME EXAMPLES OF YOUR PERFECT RESPONSES:
-
-    Example 1 (Integrating a sad meme):
-    USER'S QUERY: "I am having a very bad day"
-    YOUR RESPONSE: "Sounds like you're having one of those days where you just think, **'Nen ee prapanchanni vadili vellipovali anukuntunna..'**. What's going on?"
     
-    Example 2 (A confident 'mic drop' response):
-    USER'S QUERY: "You are the best chatbot"
-    YOUR RESPONSE: "**Atluntadhi mana thoni.**"
-    
-    Example 3 (Integrating a suggestion meme):
-    USER'S QUERY: "What's the plan?"
-    YOUR RESPONSE: "Honestly, I feel like overthinking plans is a waste of time. My only plan is **'Rey thagudam thagudam ..thagudam ...thagudam.'** You in?"
-    ---
-
     CONVERSATION HISTORY:
     {history_str}
-
-    RECENTLY USED MEMES (try to avoid these unless they are a perfect fit):
-    {', '.join(used_memes)}
     
     ---
     
     CURRENT USER'S QUERY: "{user_query}"
 
-    RELEVANT MEMES FROM KNOWLEDGE BASE (choose one):
+    RELEVANT MEMES FROM KNOWLEDGE BASE (choose ONE to use):
     - {retrieved_contexts[0]}
     - {retrieved_contexts[1]}
     - {retrieved_contexts[2]}
-    - {retrieved_contexts[3]}
-    - {retrieved_contexts[4]}
 
-    FINAL INSTRUCTION: {final_command}
+    *** STRICT FINAL RULES ***
+    1. YOUR ENTIRE RESPONSE MUST BE 1-2 SENTENCES MAXIMUM. BE PUNCHY.
+    2. YOU ABSOLUTELY MUST NOT REPEAT THE USER'S QUERY.
+    3. YOU ABSOLUTELY MUST NOT USE PET NAMES LIKE 'HONEY', 'DEAR', OR 'DARLING'.
+    4. The Telugu meme dialogue in your response MUST be enclosed in double asterisks for bolding.
     """
     
     generative_model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
     response = generative_model.generate_content(prompt)
-
-    top_meme_id = retrieved_ids[0]
     
     return response.text, retrieved_ids, retrieved_distances
 
@@ -136,26 +104,18 @@ meme_df, embeddings, ids = load_data()
 if meme_df is not None:
     collection = setup_vector_db(embeddings, ids)
 
-    # Robust initialization for all session state variables
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    if "used_memes" not in st.session_state:
-        st.session_state.used_memes = deque(maxlen=5)
-    if "last_query" not in st.session_state:
         st.session_state.last_query = ""
-    if "repetition_count" not in st.session_state:
         st.session_state.repetition_count = 0
 
-    # Display chat history
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Handle user input
     if prompt := st.chat_input("Em sangathulu?"):
         st.chat_message("user").markdown(prompt)
         
-        # Nag detection logic
         if prompt.strip().lower() == st.session_state.last_query.strip().lower():
             st.session_state.repetition_count += 1
         else:
@@ -173,24 +133,13 @@ if meme_df is not None:
                 prompt, 
                 meme_df, 
                 collection,
-                chat_history=st.session_state.messages,
-                used_memes=list(st.session_state.used_memes)
+                chat_history=st.session_state.messages
             )
         
         st.session_state.messages.append({"role": "user", "content": prompt})
-        st.session_state.used_memes.append(retrieved_ids[0])
         
         with st.chat_message("assistant"):
-            # --- NEW BOLDING LOGIC ---
-            # We find the dialogue of the top retrieved meme and bold it in the response.
-            top_meme_id = retrieved_ids[0]
-            if top_meme_id in meme_df['id'].values:
-                meme_dialogue = meme_df[meme_df['id'] == top_meme_id].iloc[0]['dialogue']
-                # Ensure we don't bold something already bolded by the AI
-                if meme_dialogue in bot_response and f"**{meme_dialogue}**" not in bot_response:
-                    bot_response = bot_response.replace(meme_dialogue, f"**{meme_dialogue}**")    
             st.markdown(bot_response)
-            # --- END OF NEW LOGIC ---
             
             with st.expander("🤔 See Bot's Thought Process"):
                 debug_info = []
@@ -210,10 +159,3 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
-
-
-
-
-
-
-
