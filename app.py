@@ -22,7 +22,8 @@ except (AttributeError, KeyError):
 @st.cache_resource
 def load_data():
     try:
-        df = pd.read_csv('Data_set - Data.csv')
+        # --- THIS IS THE UPDATED FILENAME ---
+        df = pd.read_csv('dataset_emotions.csv')
         embeddings = np.load('embeddings.npy')
         ids = np.load('ids.npy', allow_pickle=True)
         if 'emotion_bucket' not in df.columns:
@@ -30,19 +31,18 @@ def load_data():
             return None, None, None
         return df, embeddings, ids
     except FileNotFoundError:
-        st.error("Data files not found! Ensure all necessary files are in the GitHub repo.")
+        st.error("Data files not found! Ensure 'dataset_emotions.csv', 'embeddings.npy', and 'ids.npy' are in the GitHub repo.")
         return None, None, None
 
 @st.cache_resource
 def setup_vector_db(_df, _embeddings, _ids):
     client = chromadb.Client()
-    collection_name = "memes_with_emotions_v2" # New name to ensure freshness
+    collection_name = "memes_with_emotions_v2" 
     if collection_name in [c.name for c in client.list_collections()]:
         client.delete_collection(name=collection_name)
 
     collection = client.create_collection(name=collection_name)
     
-    # Create metadata from the emotion_bucket column
     metadatas = _df['emotion_bucket'].apply(lambda x: {'emotion': str(x).strip()}).tolist()
     
     collection.add(
@@ -52,35 +52,10 @@ def setup_vector_db(_df, _embeddings, _ids):
     )
     return collection
 
-# --- 3. NEW "ASSEMBLY LINE" FUNCTIONS ---
-# These functions are the new "stations" in our agent's thought process.
-
-def detect_emotion(user_query):
-    """Station 1: Detects the emotion of the user's query."""
-    try:
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
-        prompt = f"""
-        Classify the user's query into ONE of the following 8 emotions: 
-        Joy, Sadness, Anger, Fear, Surprise, Trust, Disgust, Anticipation.
-        If the query is neutral or a simple question, respond with "Neutral".
-        User query: "{user_query}"
-        Respond with only the single emotion word.
-        """
-        response = model.generate_content(prompt)
-        detected_emotion = response.text.strip()
-        # A simple check to make sure the model output is valid
-        if detected_emotion in ["Joy", "Sadness", "Anger", "Fear", "Surprise", "Trust", "Disgust", "Anticipation"]:
-            return detected_emotion
-    except Exception:
-        return None # If detection fails, return None
-    return None
-
-# --- 4. RAG CORE FUNCTION (ULTIMATE VERSION) ---
+# --- 3. RAG CORE FUNCTION ---
 def get_bot_response(user_query, df, collection, chat_history):
     history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history[-4:]])
 
-    # --- ASSEMBLY LINE STARTS ---
-    # Station 1 & 2: Detect emotion to create a filter
     detected_emotion = detect_emotion(user_query)
     search_filter = None
     if detected_emotion:
@@ -94,7 +69,6 @@ def get_bot_response(user_query, df, collection, chat_history):
         if relevant_buckets:
             search_filter = {"emotion": {"$in": relevant_buckets}}
             
-    # Station 3: Embed the query and perform the filtered search
     query_embedding = genai.embed_content(
         model='models/embedding-001',
         content=user_query
@@ -108,7 +82,6 @@ def get_bot_response(user_query, df, collection, chat_history):
     retrieved_ids = results['ids'][0]
     retrieved_distances = results['distances'][0]
 
-    # Station 4: The Witty Author (Final Generation)
     retrieved_contexts = []
     for meme_id in retrieved_ids:
         meme_data = df[df['id'] == meme_id].iloc[0]
@@ -138,7 +111,25 @@ def get_bot_response(user_query, df, collection, chat_history):
     
     return response.text, retrieved_ids, retrieved_distances, detected_emotion
 
-# --- 5. STREAMLIT UI ---
+def detect_emotion(user_query):
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        prompt = f"""
+        Classify the user's query into ONE of the following 8 emotions: 
+        Joy, Sadness, Anger, Fear, Surprise, Trust, Disgust, Anticipation.
+        If the query is neutral or a simple question, respond with "Neutral".
+        User query: "{user_query}"
+        Respond with only the single emotion word.
+        """
+        response = model.generate_content(prompt)
+        detected_emotion = response.text.strip()
+        if detected_emotion in ["Joy", "Sadness", "Anger", "Fear", "Surprise", "Trust", "Disgust", "Anticipation", "Neutral"]:
+            return detected_emotion
+    except Exception:
+        return None 
+    return None
+
+# --- 4. STREAMLIT UI ---
 st.title("🗣️ Meme Mowa Chat")
 st.markdown("KAARANA JANMUNNI nenu...")
 
