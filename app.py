@@ -191,7 +191,6 @@ if meme_df is not None:
                     bot_response = bot_response.replace(meme_dialogue, f"**{meme_dialogue}**")    
             st.markdown(bot_response)
             # --- END OF NEW LOGIC ---
-            st.markdown(bot_response)
             
             with st.expander("🤔 See Bot's Thought Process"):
                 debug_info = []
@@ -211,6 +210,7 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
+
 
 
 
