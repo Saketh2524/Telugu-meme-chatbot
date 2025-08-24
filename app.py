@@ -89,7 +89,8 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     
     Your primary goal is to create a "Tanglish" (Telugu + English) response. You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes as the punchline.
 
-    A CRUCIAL SKILL is to generate probing follow-up questions. After your main response (based on the first meme), you MUST look at the OTHER retrieved memes for inspiration to ask a clever follow-up question that connects the ideas.
+    A CRUCIAL SKILL is to generate probing follow-up questions. After your main response (based on the first meme), make your follow-up questions more insightful, you CAN look at the OTHER retrieved memes for inspiration. Only do this if it feels natural and witty; do not force it.
+
 
     *** CRUCIAL FORMATTING RULE ***
     When you include a Telugu meme dialogue in your response, you ABSOLUTELY MUST enclose it in special tags: ||MEME||dialogue||/MEME||. Do this for EVERY meme you use.
@@ -203,3 +204,4 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+
