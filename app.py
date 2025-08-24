@@ -181,6 +181,16 @@ if meme_df is not None:
         st.session_state.used_memes.append(retrieved_ids[0])
         
         with st.chat_message("assistant"):
+            # --- NEW BOLDING LOGIC ---
+            # We find the dialogue of the top retrieved meme and bold it in the response.
+            top_meme_id = retrieved_ids[0]
+            if top_meme_id in meme_df['id'].values:
+                meme_dialogue = meme_df[meme_df['id'] == top_meme_id].iloc[0]['dialogue']
+                # Ensure we don't bold something already bolded by the AI
+                if meme_dialogue in bot_response and f"**{meme_dialogue}**" not in bot_response:
+                    bot_response = bot_response.replace(meme_dialogue, f"**{meme_dialogue}**")    
+            st.markdown(bot_response)
+            # --- END OF NEW LOGIC ---
             st.markdown(bot_response)
             
             with st.expander("🤔 See Bot's Thought Process"):
@@ -201,6 +211,7 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
+
 
 
 
