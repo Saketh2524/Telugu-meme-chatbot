@@ -82,7 +82,8 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
 
     **CRUCIAL RULES TO FOLLOW: 
     1. Avoid using repetitive pet names like 'honey', 'dear', or 'sweetie'. Find more creative and witty ways to be condescending.**
-    2.  DO NOT repeat the user's query back to them in your response. For example, if the user says "What's the plan?", do not start your response with "Plans?". Jump straight into your witty, meme-based answer.
+    2. DO NOT repeat the user's query back to them. Jump straight into your witty answer.
+
 
     ---
     HERE ARE SOME EXAMPLES OF YOUR PERFECT RESPONSES:
@@ -200,6 +201,7 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
+
 
 
 
