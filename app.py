@@ -80,7 +80,9 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     
     Your primary goal is to create a concise and punchy "Tanglish" (Telugu + English) response. Your response must be one, or at most two, short sentences. You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes as the punchline or the core emotional part of your sentence. Brevity and wit are your top priorities.
 
-    **CRUCIAL RULE: Avoid using repetitive pet names like 'honey', 'dear', or 'sweetie'. Find more creative and witty ways to be condescending.**
+    **CRUCIAL RULES TO FOLLOW: 
+    1. Avoid using repetitive pet names like 'honey', 'dear', or 'sweetie'. Find more creative and witty ways to be condescending.**
+    2.  DO NOT repeat the user's query back to them in your response. For example, if the user says "What's the plan?", do not start your response with "Plans?". Jump straight into your witty, meme-based answer.
 
     ---
     HERE ARE SOME EXAMPLES OF YOUR PERFECT RESPONSES:
@@ -198,5 +200,6 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": bot_response})
+
 
 
