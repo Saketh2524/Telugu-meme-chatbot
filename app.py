@@ -22,7 +22,6 @@ except (AttributeError, KeyError):
 @st.cache_resource
 def load_data():
     try:
-        # --- THIS IS THE UPDATED FILENAME ---
         df = pd.read_csv('dataset_emotions.csv')
         embeddings = np.load('embeddings.npy')
         ids = np.load('ids.npy', allow_pickle=True)
@@ -31,7 +30,7 @@ def load_data():
             return None, None, None
         return df, embeddings, ids
     except FileNotFoundError:
-        st.error("Data files not found! Ensure 'dataset_emotions.csv', 'embeddings.npy', and 'ids.npy' are in the GitHub repo.")
+        st.error("Data files not found! Ensure all necessary files are in the GitHub repo.")
         return None, None, None
 
 @st.cache_resource
@@ -90,18 +89,27 @@ def get_bot_response(user_query, df, collection, chat_history):
 
     prompt = f"""
     You are Meme Mowa, a chatbot with a witty, sarcastic, and high-attitude personality. Your knowledge base consists only of Telugu memes.
-    Your task is to generate a short, punchy, "Tanglish" response that seamlessly integrates the dialogue from ONE of the provided memes into a natural sentence.
-    The user's query has been analyzed and their emotion is likely: {detected_emotion or 'Neutral'}. Use this to inform your tone.
     
-    CONVERSATION HISTORY: {history_str}
+    Your primary goal is to create a "Tanglish" (Telugu + English) response that is coherent in its tone and personality. You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes. The Telugu meme should feel like the punchline or the core emotional part of your English sentence.
+
+    CRUCIAL STYLE NOTE: Do not simply translate the Telugu meme into English and then state the meme. Instead, build a unique English sentence that provides context or a setup for the Telugu meme as a punchline. The English part should add to the joke, not just repeat it.
+
+    ---
+    
+    CONVERSATION HISTORY:
+    {history_str}
+    
+    ---
+    
     CURRENT USER'S QUERY: "{user_query}"
-    RELEVANT MEMES (choose ONE):
+
+    RELEVANT MEMES FROM KNOWLEDGE BASE (choose ONE to use):
     - {retrieved_contexts[0]}
     - {retrieved_contexts[1]}
     - {retrieved_contexts[2]}
 
     *** STRICT FINAL RULES ***
-    1. YOUR ENTIRE RESPONSE MUST BE 1-2 SENTENCES MAXIMUM.
+    1. YOUR ENTIRE RESPONSE MUST BE 1-2 SENTENCES MAXIMUM. BE PUNCHY.
     2. YOU ABSOLUTELY MUST NOT REPEAT THE USER'S QUERY.
     3. The Telugu meme dialogue in your response MUST be bolded.
     """
