@@ -143,7 +143,16 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
         selected_indices = indices[:3]
         retrieved_ids = [retrieved_ids[i] for i in selected_indices]
         retrieved_distances = [retrieved_distances[i] for i in selected_indices]
-        # --- Select the best meme based on distance ---
+    # --- First, build contexts ---
+    retrieved_contexts = []
+    for meme_id in retrieved_ids:
+        match = df[df['id'] == meme_id]
+        if not match.empty:
+            meme_data = match.iloc[0]
+            context = f"Dialogue: '{meme_data['dialogue']}' (Context: {meme_data['usage_context']})"
+            retrieved_contexts.append(context)
+    # --- Now safe to shuffle candidates ---
+
     candidates = list(zip(retrieved_ids, retrieved_distances, retrieved_contexts))
     random.shuffle(candidates)
     candidates = candidates[:3]
@@ -271,6 +280,7 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+
 
 
 
