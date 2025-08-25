@@ -45,10 +45,9 @@ def setup_vector_db(_df, _embeddings, _ids):
     collection.add(embeddings=_embeddings.tolist(), ids=[str(i) for i in _ids], metadatas=metadatas)
     return collection
 
-# --- 3. THE "ASSEMBLY LINE" FUNCTIONS ---
+# --- 3. RAG CORE FUNCTIONS ---
 
 def detect_emotion(user_query):
-    # Station 1: Classifies the user's emotion.
     try:
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
         prompt = f"Classify the user's query into ONE of the following: Joy, Sadness, Anger, Fear, Surprise, Trust, Disgust, Anticipation, Neutral. Query: \"{user_query}\". Respond with only the single word."
@@ -60,48 +59,8 @@ def detect_emotion(user_query):
         return "Neutral"
     return "Neutral"
 
-def generate_main_response(user_query, history_str, main_meme_context):
-    # Station 2: Generates the core response using the top meme.
-    model = genai.GenerativeModel('gemini-1.5-flash-latest')
-    prompt = f"""
-    You are Meme Mowa, a witty, sarcastic chatbot.
-    Your primary goal is to create a "Tanglish" (Telugu + English) response. You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes as the punchline.
-
-    
-    CONVERSATION HISTORY: {history_str}
-    CURRENT USER'S QUERY: "{user_query}"
-    MOST RELEVANT MEME: {main_meme_context}
-
-    *** YOUR TASK ***
-    Generate a short, witty, "Tanglish" reply that seamlessly integrates the dialogue from the provided meme. The dialogue MUST be bolded.
-    Your response must be a single, punchy sentence. DO NOT repeat the user's query.
-    YOU ABSOLUTELY MUST NOT USE PET NAMES LIKE 'HONEY' OR 'DARLING'.
-
-    """
-    response = model.generate_content(prompt)
-    return response.text
-
-def generate_probing_question(user_query, main_response, other_meme_contexts):
-    # Station 3: Generates a follow-up question using the other memes.
-    model = genai.GenerativeModel('gemini-1.5-flash-latest')
-    prompt = f"""
-    A user and a bot just had this exchange:
-    - User said: "{user_query}"
-    - Bot replied: "{main_response}"
-
-    Here are some OTHER related memes that were also found:
-    - {other_meme_contexts[0]}
-    - {other_meme_contexts[1]}
-
-    *** YOUR TASK ***
-    Your task is to now write a short, witty, probing follow-up question if it related to "OTHER memes". The question should feel like a natural continuation.
-    """
-    response = model.generate_content(prompt)
-    return response.text
-
-# --- 4. THE "FACTORY MANAGER" ---
-def get_bot_response(user_query, df, collection, chat_history):
-    # This function now manages the assembly line.
+def get_bot_response(user_query, df, collection, chat_history, used_memes):
+    history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history[-4:]])
     detected_emotion = detect_emotion(user_query)
     
     search_filter = None
@@ -119,25 +78,41 @@ def get_bot_response(user_query, df, collection, chat_history):
     retrieved_ids = results['ids'][0]
     retrieved_distances = results['distances'][0]
     
-    main_meme_context = f"Dialogue: '{df[df['id'] == retrieved_ids[0]].iloc[0]['dialogue']}' (Context: {df[df['id'] == retrieved_ids[0]].iloc[0]['usage_context']})"
-    other_meme_contexts = [
-        f"Dialogue: '{df[df['id'] == retrieved_ids[1]].iloc[0]['dialogue']}'",
-        f"Dialogue: '{df[df['id'] == retrieved_ids[2]].iloc[0]['dialogue']}'"
-    ]
+    retrieved_contexts = []
+    for meme_id in retrieved_ids:
+        meme_data = df[df['id'] == meme_id].iloc[0]
+        context = f"Dialogue: '{meme_data['dialogue']}' (Context: {meme_data['usage_context']})"
+        retrieved_contexts.append(context)
 
-    main_response = generate_main_response(user_query, chat_history, main_meme_context)
+    prompt = f"""
+    You are Meme Mowa, a chatbot that responds using Telugu memes.
+    Your personality is witty, sarcastic, and high-attitude.
+    Your primary goal is to create a "Tanglish" (Telugu + English) response. You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes as the punchline.
+    A CRUCIAL SKILL is to generate probing follow-up questions. After your main response, look at the OTHER retrieved memes for inspiration to ask a clever follow-up question.
+
+    *** CRUCIAL FORMATTING RULE ***
+    When you include a Telugu meme dialogue in your response, you MUST enclose it in special tags: ||MEME||dialogue||/MEME||.
+
+    CONVERSATION HISTORY: {history_str}
+    RECENTLY USED MEMES (AVOID THESE): {', '.join(used_memes)}
+    CURRENT USER'S QUERY: "{user_query}"
+    RELEVANT MEMES (use #1 for response, others for follow-up inspiration):
+    - {retrieved_contexts[0]}
+    - {retrieved_contexts[1]}
+    - {retrieved_contexts[2]}
+
+    *** STRICT BEHAVIORAL RULES ***
+    1. YOUR ENTIRE RESPONSE MUST BE 1-2 SENTENCES MAXIMUM.
+    2. DO NOT repeat the user's query.
+    3. DO NOT use pet names like 'honey' or 'darling'.
+    """
     
-    # Decide if we need a probing question. High-confidence matches don't need one.
-    if retrieved_distances[0] < 0.55:
-        final_response = main_response
-    else:
-        probing_question = generate_probing_question(user_query, main_response, other_meme_contexts)
-        final_response = main_response + " " + probing_question
+    generative_model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
+    response = generative_model.generate_content(prompt)
+    
+    return response.text, retrieved_ids, retrieved_distances, detected_emotion
 
-    return final_response, retrieved_ids, retrieved_distances, detected_emotion
-
-
-# --- 5. STREAMLIT UI ---
+# --- 4. STREAMLIT UI ---
 st.title("🗣️ Meme Mowa Chat")
 st.markdown("KAARANA JANMUNNI nenu...")
 
@@ -147,6 +122,9 @@ if meme_df is not None:
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
+        st.session_state.used_memes = deque(maxlen=5)
+        st.session_state.last_query = ""
+        st.session_state.repetition_count = 0
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -155,18 +133,36 @@ if meme_df is not None:
     if prompt := st.chat_input("Em sangathulu?"):
         st.chat_message("user").markdown(prompt)
         
-        bot_response, retrieved_ids, retrieved_distances, detected_emotion = get_bot_response(
-            prompt, 
-            meme_df, 
-            collection,
-            chat_history=st.session_state.messages
-        )
+        if prompt.strip().lower() == st.session_state.last_query.strip().lower():
+            st.session_state.repetition_count += 1
+        else:
+            st.session_state.repetition_count = 1
+            st.session_state.last_query = prompt.strip()
+
+        if st.session_state.repetition_count >= 3:
+            bot_response = "||MEME||eyy marcus endhuku ra anni sarlu phone chesthunnav||/MEME||"
+            retrieved_ids = ["TILLU_002"]; retrieved_distances = [0.0]; detected_emotion = "Anger"
+            st.session_state.repetition_count = 0; st.session_state.last_query = ""
+        else:
+            bot_response, retrieved_ids, retrieved_distances, detected_emotion = get_bot_response(
+                prompt, meme_df, collection, st.session_state.messages, list(st.session_state.used_memes)
+            )
+        
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state.used_memes.append(retrieved_ids[0])
         
         with st.chat_message("assistant"):
-            st.markdown(bot_response)
+            # --- CODE-ENFORCED RULES ---
+            # 1. Reliably remove forbidden pet names
+            interim_response = re.sub(r'(?i)\b(honey|darling|sweetie)\b[, ]*', '', bot_response).strip()
+            # 2. Reliably bold ALL memes
+            formatted_response = re.sub(r'\|\|MEME\|\|(.*?)\|\|/MEME\|\|', r'**\1**', interim_response)
+            
+            st.markdown(formatted_response)
             
             with st.expander("🤔 See Bot's Thought Process"):
                 st.write(f"**Detected Emotion:** {detected_emotion or 'N/A'}")
+                st.write("**Raw Bot Response (from AI):**"); st.text(bot_response)
                 debug_info = []
                 for i, meme_id in enumerate(retrieved_ids):
                     if meme_id in meme_df['id'].values:
@@ -177,5 +173,4 @@ if meme_df is not None:
                         })
                 st.json(debug_info)
         
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        st.session_state.messages.append({"role": "assistant", "content": bot_response})
+        st.session_state.messages.append({"role": "assistant", "content": formatted_response})
