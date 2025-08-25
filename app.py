@@ -106,7 +106,7 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     retrieved_distances = results['distances'][0]
     # --- Exploration Injection ---
 
-# Track usage counts in session_state (initialize if not present)
+    # Track usage counts in session_state (initialize if not present)
     if "meme_usage_counts" not in st.session_state:
         st.session_state.meme_usage_counts = {}
     
@@ -119,8 +119,8 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     
     if do_explore:
         # Find rarely used memes
-        usage_series = meme_df['id'].apply(lambda x: usage_counts.get(x, 0))
-        low_use_memes = meme_df.loc[usage_series.nsmallest(20).index]  # 20 least used
+        usage_series = df['id'].apply(lambda x: usage_counts.get(x, 0))
+        low_use_memes = df.loc[usage_series.nsmallest(20).index]  # 20 least used
         if not low_use_memes.empty:
             candidate = low_use_memes.sample(1).iloc[0]
             retrieved_ids.append(candidate['id'])
@@ -135,6 +135,20 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
         selected_indices = indices[:3]
         retrieved_ids = [retrieved_ids[i] for i in selected_indices]
         retrieved_distances = [retrieved_distances[i] for i in selected_indices]
+        # --- Select the best meme based on distance ---
+    candidates = list(zip(retrieved_ids, retrieved_distances))
+    
+    if candidates:
+        # Pick the one with the lowest distance
+        best_id, best_dist = min(candidates, key=lambda x: x[1])
+    
+        # Now look it up in the DataFrame
+        best_meme = df.loc[df['id'] == best_id].iloc[0]
+        meme_text = best_meme['dialogue']
+    else:
+        # Fallback in case nothing was retrieved
+        meme_text = "Naku nidarosthundi sir..."
+
 
     # Gather the meme contexts safely
     retrieved_contexts = []
@@ -247,4 +261,5 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+
 
