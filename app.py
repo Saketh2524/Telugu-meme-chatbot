@@ -59,7 +59,7 @@ def detect_emotion(user_query):
         return "Neutral"
     return "Neutral"
 
-def get_probing_candidates(retrieved_contexts, retrieved_distances, threshold_meme=0.70, threshold_general=0.65):
+def get_probing_candidates(retrieved_contexts, retrieved_distances, threshold_meme=0.45, threshold_general=0.65):
     """
     Decide if probing is allowed and whether it should use a meme line.
     Returns: (probe_allowed, probe_with_meme, probing_contexts)
@@ -207,6 +207,7 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+
 
 
 
