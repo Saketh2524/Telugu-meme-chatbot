@@ -104,6 +104,29 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
 
     retrieved_ids = results['ids'][0]
     retrieved_distances = results['distances'][0]
+    # --- Exploration Injection ---
+
+# Track usage counts in session_state (initialize if not present)
+    if "meme_usage_counts" not in st.session_state:
+        st.session_state.meme_usage_counts = {}
+    
+    usage_counts = st.session_state.meme_usage_counts
+    
+    # Decide if we want to explore (10% chance by default)
+    import random
+    explore_chance = 0.15  # 15% exploration, tune as needed
+    do_explore = random.random() < explore_chance
+    
+    if do_explore:
+        # Find rarely used memes
+        usage_series = meme_df['id'].apply(lambda x: usage_counts.get(x, 0))
+        low_use_memes = meme_df.loc[usage_series.nsmallest(20).index]  # 20 least used
+        if not low_use_memes.empty:
+            candidate = low_use_memes.sample(1).iloc[0]
+            retrieved_ids.append(candidate['id'])
+            retrieved_distances.append(0.99)  # mark as "weakly relevant"
+            st.info(f"🌱 Exploration: testing rarely used meme `{candidate['id']}`")
+
 
     # Randomize selection of top memes
     if len(retrieved_ids) > 3:
@@ -224,3 +247,4 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+
