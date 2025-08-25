@@ -105,27 +105,35 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     retrieved_ids = results['ids'][0]
     retrieved_distances = results['distances'][0]
     # --- Exploration Injection ---
-
-    # Track usage counts in session_state (initialize if not present)
     if "meme_usage_counts" not in st.session_state:
         st.session_state.meme_usage_counts = {}
-    
     usage_counts = st.session_state.meme_usage_counts
     
-    # Decide if we want to explore (10% chance by default)
-    import random
-    explore_chance = 0.15  # 15% exploration, tune as needed
+    # Exploration chance
+    explore_chance = 0.15
     do_explore = random.random() < explore_chance
     
     if do_explore:
-        # Find rarely used memes
+        # Step 1: Find rarely used memes
         usage_series = df['id'].apply(lambda x: usage_counts.get(x, 0))
-        low_use_memes = df.loc[usage_series.nsmallest(20).index]  # 20 least used
+        low_use_memes = df.loc[usage_series.nsmallest(50).index]  # widen pool to 50
+        
         if not low_use_memes.empty:
-            candidate = low_use_memes.sample(1).iloc[0]
-            retrieved_ids.append(candidate['id'])
-            retrieved_distances.append(0.99)  # mark as "weakly relevant"
-            st.info(f"🌱 Exploration: testing rarely used meme `{candidate['id']}`")
+            # Step 2: Compute similarity between query and low-use memes
+            low_use_embeddings = embeddings[low_use_memes.index]
+            sims = np.dot(low_use_embeddings, query_embedding) / (
+                np.linalg.norm(low_use_embeddings, axis=1) * np.linalg.norm(query_embedding) + 1e-9
+            )
+            
+            # Step 3: Pick a meme that is both underused AND somewhat relevant
+            best_idx = sims.argmax()
+            candidate = low_use_memes.iloc[best_idx]
+            
+            if sims[best_idx] > 0.3:  # threshold for relevance, tune this
+                retrieved_ids.append(str(candidate['id']))
+                retrieved_distances.append(0.9)  # keep it weaker than real retrieval
+                st.info(f"🌱 Exploration: testing low-usage but relevant meme `{candidate['id']}` (sim={sims[best_idx]:.2f})")
+
 
 
     # Randomize selection of top memes
@@ -136,8 +144,10 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
         retrieved_ids = [retrieved_ids[i] for i in selected_indices]
         retrieved_distances = [retrieved_distances[i] for i in selected_indices]
         # --- Select the best meme based on distance ---
-    candidates = list(zip(retrieved_ids, retrieved_distances))
-    
+    candidates = list(zip(retrieved_ids, retrieved_distances, retrieved_contexts))
+    random.shuffle(candidates)
+    candidates = candidates[:3]
+    retrieved_ids, retrieved_distances, retrieved_contexts = zip(*candidates) if candidates else ([], [], [])    
     if candidates:
         # Pick the one with the lowest distance
         best_id, best_dist = min(candidates, key=lambda x: x[1])
@@ -261,5 +271,6 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+
 
 
