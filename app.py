@@ -159,7 +159,8 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     retrieved_ids, retrieved_distances, retrieved_contexts = zip(*candidates) if candidates else ([], [], [])    
     if candidates:
         # Pick the one with the lowest distance
-        best_id, best_dist = min(candidates, key=lambda x: x[1])
+        best_id, best_dist, best_context = min(candidates, key=lambda x: x[1])
+
     
         # Now look it up in the DataFrame
         best_meme = df.loc[df['id'] == best_id].iloc[0]
@@ -280,6 +281,7 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+
 
 
 
