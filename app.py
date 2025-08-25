@@ -97,28 +97,32 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
         if relevant_buckets: 
             search_filter = {"emotion": {"$in": relevant_buckets}}
             
-    query_embedding = genai.embed_content(model='models/embedding-001', content=user_query)['embedding']
+    query_embedding = genai.embed_content(
+        model='models/embedding-001',
+        content=user_query
+    )['embedding']
+    
     # Query Chroma with more results for variety
     results = collection.query(
-    query_embeddings=[query_embedding],
-    n_results=7,
-    where=search_filter
+        query_embeddings=[query_embedding],
+        n_results=7,
+        where=search_filter
     )
 
-retrieved_ids = results['ids'][0]
-retrieved_distances = results['distances'][0]
+    retrieved_ids = results['ids'][0]
+    retrieved_distances = results['distances'][0]
 
-# Randomize selection of top memes
-if len(retrieved_ids) > 3:
-    indices = list(range(len(retrieved_ids)))
-    random.shuffle(indices)
-    selected_indices = indices[:3]
-    retrieved_ids = [retrieved_ids[i] for i in selected_indices]
-    retrieved_distances = [retrieved_distances[i] for i in selected_indices]
+    # Randomize selection of top memes
+    if len(retrieved_ids) > 3:
+        indices = list(range(len(retrieved_ids)))
+        random.shuffle(indices)
+        selected_indices = indices[:3]
+        retrieved_ids = [retrieved_ids[i] for i in selected_indices]
+        retrieved_distances = [retrieved_distances[i] for i in selected_indices]
 
-# Gather the meme texts
-memes = [df.iloc[int(idx)]['dialogue'] for idx in retrieved_ids]
-    
+    # Gather the meme texts
+    memes = [df.iloc[int(idx)]['dialogue'] for idx in retrieved_ids]
+        
     retrieved_contexts = []
     for meme_id in retrieved_ids:
         meme_data = df[df['id'] == meme_id].iloc[0]
@@ -126,7 +130,9 @@ memes = [df.iloc[int(idx)]['dialogue'] for idx in retrieved_ids]
         retrieved_contexts.append(context)
 
     # --- Probing Decision ---
-    probe_allowed, probe_with_meme, probing_contexts = get_probing_candidates(retrieved_contexts, retrieved_distances)
+    probe_allowed, probe_with_meme, probing_contexts = get_probing_candidates(
+        retrieved_contexts, retrieved_distances
+    )
 
     if probe_with_meme:
         probe_instruction = f"You may ask ONE probing follow-up using ONLY these meme dialogues if they fit naturally:\n- {'; '.join(probing_contexts)}"
@@ -164,6 +170,7 @@ memes = [df.iloc[int(idx)]['dialogue'] for idx in retrieved_ids]
     response = generative_model.generate_content(prompt)
     
     return response.text, retrieved_ids, retrieved_distances, detected_emotion
+
 
 # --- 4. STREAMLIT UI ---
 st.title("🗣️ Meme Mowa")
@@ -225,6 +232,7 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+
 
 
 
