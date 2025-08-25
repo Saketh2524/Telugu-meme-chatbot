@@ -1,9 +1,9 @@
-# This is the magic fix for the sqlite3 version issue on Streamlit Cloud
+# --- SQLITE FIX FOR STREAMLIT CLOUD ---
 __import__('pysqlite3')
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
-# Now the rest of your imports can follow
+# --- CORE IMPORTS ---
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,7 +13,6 @@ import os
 from collections import deque
 import re
 import random
-
 
 # --- 1. CONFIGURATION ---
 try:
@@ -48,7 +47,6 @@ def setup_vector_db(_df, _embeddings, _ids):
     return collection
 
 # --- 3. RAG CORE FUNCTIONS ---
-
 def detect_emotion(user_query):
     try:
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
@@ -62,10 +60,6 @@ def detect_emotion(user_query):
     return "Neutral"
 
 def get_probing_candidates(retrieved_contexts, retrieved_distances, threshold_meme=0.45, threshold_general=0.65):
-    """
-    Decide if probing is allowed and whether it should use a meme line.
-    Returns: (probe_allowed, probe_with_meme, probing_contexts)
-    """
     probe_allowed = False
     probe_with_meme = False
     probing_contexts = []
@@ -77,7 +71,6 @@ def get_probing_candidates(retrieved_contexts, retrieved_distances, threshold_me
             probing_contexts.append(retrieved_contexts[i])
         elif d < threshold_general:
             probe_allowed = True
-            # only general English probing allowed here
 
     return probe_allowed, probe_with_meme, probing_contexts
 
@@ -120,14 +113,14 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
         retrieved_ids = [retrieved_ids[i] for i in selected_indices]
         retrieved_distances = [retrieved_distances[i] for i in selected_indices]
 
-    # Gather the meme texts
-    memes = [df.iloc[int(idx)]['dialogue'] for idx in retrieved_ids]
-        
+    # Gather the meme contexts safely
     retrieved_contexts = []
     for meme_id in retrieved_ids:
-        meme_data = df[df['id'] == meme_id].iloc[0]
-        context = f"Dialogue: '{meme_data['dialogue']}' (Context: {meme_data['usage_context']})"
-        retrieved_contexts.append(context)
+        match = df[df['id'] == meme_id]
+        if not match.empty:
+            meme_data = match.iloc[0]
+            context = f"Dialogue: '{meme_data['dialogue']}' (Context: {meme_data['usage_context']})"
+            retrieved_contexts.append(context)
 
     # --- Probing Decision ---
     probe_allowed, probe_with_meme, probing_contexts = get_probing_candidates(
@@ -155,9 +148,9 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     RECENTLY USED MEMES (AVOID THESE): {', '.join(used_memes)}
     CURRENT USER'S QUERY: "{user_query}"
     RELEVANT MEMES:
-    - {retrieved_contexts[0]}
-    - {retrieved_contexts[1]}
-    - {retrieved_contexts[2]}
+    - {retrieved_contexts[0] if len(retrieved_contexts)>0 else ''}
+    - {retrieved_contexts[1] if len(retrieved_contexts)>1 else ''}
+    - {retrieved_contexts[2] if len(retrieved_contexts)>2 else ''}
 
     *** STRICT BEHAVIORAL RULES ***
     1. YOUR ENTIRE RESPONSE MUST BE 1-2 SENTENCES MAXIMUM.
@@ -170,7 +163,6 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     response = generative_model.generate_content(prompt)
     
     return response.text, retrieved_ids, retrieved_distances, detected_emotion
-
 
 # --- 4. STREAMLIT UI ---
 st.title("🗣️ Meme Mowa")
@@ -232,9 +224,3 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": formatted_response})
-
-
-
-
-
-
