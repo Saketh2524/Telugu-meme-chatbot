@@ -59,22 +59,25 @@ def detect_emotion(user_query):
         return "Neutral"
     return "Neutral"
 
-def get_probing_candidates(retrieved_ids, retrieved_distances, threshold_meme=0.25, threshold_general=0.40):
+def get_probing_candidates(retrieved_contexts, retrieved_distances, threshold_meme=0.45, threshold_general=0.65):
     """
     Decide if probing is allowed and whether it should use a meme line.
-    Returns: (probe_allowed, probe_with_meme)
+    Returns: (probe_allowed, probe_with_meme, probing_contexts)
     """
     probe_allowed = False
     probe_with_meme = False
+    probing_contexts = []
 
-    if len(retrieved_distances) > 1 and retrieved_distances[1] < threshold_meme:
-        probe_allowed = True
-        probe_with_meme = True
-    elif len(retrieved_distances) > 1 and retrieved_distances[1] < threshold_general:
-        probe_allowed = True
-        probe_with_meme = False
+    for i, d in enumerate(retrieved_distances[1:], start=1):  # skip punchline meme at index 0
+        if d < threshold_meme:
+            probe_allowed = True
+            probe_with_meme = True
+            probing_contexts.append(retrieved_contexts[i])
+        elif d < threshold_general:
+            probe_allowed = True
+            # only general English probing allowed here
 
-    return probe_allowed, probe_with_meme
+    return probe_allowed, probe_with_meme, probing_contexts
 
 def get_bot_response(user_query, df, collection, chat_history, used_memes):
     history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history[-4:]])
@@ -105,10 +108,10 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
         retrieved_contexts.append(context)
 
     # --- Probing Decision ---
-    probe_allowed, probe_with_meme = get_probing_candidates(retrieved_ids, retrieved_distances)
+    probe_allowed, probe_with_meme, probing_contexts = get_probing_candidates(retrieved_contexts, retrieved_distances)
 
     if probe_with_meme:
-        probe_instruction = "You may ask ONE probing follow-up using one of the extra meme dialogues ONLY if it is a natural fit."
+        probe_instruction = f"You may ask ONE probing follow-up using ONLY these meme dialogues if they fit naturally:\n- {'; '.join(probing_contexts)}"
     elif probe_allowed:
         probe_instruction = "You may ask ONE probing follow-up in plain English if it feels relevant."
     else:
@@ -118,7 +121,8 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     You are Meme Mowa, a chatbot that responds using Telugu memes.
     Your personality is witty, sarcastic, and high-attitude.
     Your primary goal is to create a "Tanglish" (Telugu + English) response. 
-    You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes as the punchline.
+    You must build a natural, conversational sentence in English that seamlessly integrates 
+    the dialogue of ONE of the provided Telugu memes as the punchline.
 
     *** CRUCIAL FORMATTING RULE ***
     When you include a Telugu meme dialogue in your response, you MUST enclose it in special tags: ||MEME||dialogue||/MEME||.
@@ -203,3 +207,4 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+
