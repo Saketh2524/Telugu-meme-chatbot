@@ -59,6 +59,23 @@ def detect_emotion(user_query):
         return "Neutral"
     return "Neutral"
 
+def get_probing_candidates(retrieved_ids, retrieved_distances, threshold_meme=0.25, threshold_general=0.40):
+    """
+    Decide if probing is allowed and whether it should use a meme line.
+    Returns: (probe_allowed, probe_with_meme)
+    """
+    probe_allowed = False
+    probe_with_meme = False
+
+    if len(retrieved_distances) > 1 and retrieved_distances[1] < threshold_meme:
+        probe_allowed = True
+        probe_with_meme = True
+    elif len(retrieved_distances) > 1 and retrieved_distances[1] < threshold_general:
+        probe_allowed = True
+        probe_with_meme = False
+
+    return probe_allowed, probe_with_meme
+
 def get_bot_response(user_query, df, collection, chat_history, used_memes):
     history_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history[-4:]])
     detected_emotion = detect_emotion(user_query)
@@ -66,11 +83,14 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     search_filter = None
     if detected_emotion and detected_emotion != "Neutral":
         emotion_map = {
-            "Sadness": ["Sadness", "Trust", "Joy"], "Anger": ["Anger", "Disgust", "Joy"],
-            "Joy": ["Joy", "Anticipation", "Trust"], "Fear": ["Fear", "Trust", "Surprise"]
+            "Sadness": ["Sadness", "Trust", "Joy"], 
+            "Anger": ["Anger", "Disgust", "Joy"],
+            "Joy": ["Joy", "Anticipation", "Trust"], 
+            "Fear": ["Fear", "Trust", "Surprise"]
         }
         relevant_buckets = emotion_map.get(detected_emotion)
-        if relevant_buckets: search_filter = {"emotion": {"$in": relevant_buckets}}
+        if relevant_buckets: 
+            search_filter = {"emotion": {"$in": relevant_buckets}}
             
     query_embedding = genai.embed_content(model='models/embedding-001', content=user_query)['embedding']
     results = collection.query(query_embeddings=[query_embedding], n_results=3, where=search_filter)
@@ -84,11 +104,21 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
         context = f"Dialogue: '{meme_data['dialogue']}' (Context: {meme_data['usage_context']})"
         retrieved_contexts.append(context)
 
+    # --- Probing Decision ---
+    probe_allowed, probe_with_meme = get_probing_candidates(retrieved_ids, retrieved_distances)
+
+    if probe_with_meme:
+        probe_instruction = "You may ask ONE probing follow-up using one of the extra meme dialogues ONLY if it is a natural fit."
+    elif probe_allowed:
+        probe_instruction = "You may ask ONE probing follow-up in plain English if it feels relevant."
+    else:
+        probe_instruction = "Do NOT ask a probing follow-up. Only respond with the meme punchline."
+
     prompt = f"""
     You are Meme Mowa, a chatbot that responds using Telugu memes.
     Your personality is witty, sarcastic, and high-attitude.
-    Your primary goal is to create a "Tanglish" (Telugu + English) response. You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes as the punchline.
-    A CRUCIAL SKILL is to generate probing follow-up questions. After your main response, look at the OTHER retrieved memes for inspiration to ask a clever follow-up question.
+    Your primary goal is to create a "Tanglish" (Telugu + English) response. 
+    You must build a natural, conversational sentence in English that seamlessly integrates the dialogue of ONE of the provided Telugu memes as the punchline.
 
     *** CRUCIAL FORMATTING RULE ***
     When you include a Telugu meme dialogue in your response, you MUST enclose it in special tags: ||MEME||dialogue||/MEME||.
@@ -96,7 +126,7 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     CONVERSATION HISTORY: {history_str}
     RECENTLY USED MEMES (AVOID THESE): {', '.join(used_memes)}
     CURRENT USER'S QUERY: "{user_query}"
-    RELEVANT MEMES (use #1 for response, others for follow-up inspiration):
+    RELEVANT MEMES:
     - {retrieved_contexts[0]}
     - {retrieved_contexts[1]}
     - {retrieved_contexts[2]}
@@ -105,6 +135,7 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
     1. YOUR ENTIRE RESPONSE MUST BE 1-2 SENTENCES MAXIMUM.
     2. DO NOT repeat the user's query.
     3. DO NOT use pet names like 'honey' or 'darling'.
+    4. {probe_instruction}
     """
     
     generative_model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
@@ -153,9 +184,7 @@ if meme_df is not None:
         
         with st.chat_message("assistant"):
             # --- CODE-ENFORCED RULES ---
-            # 1. Reliably remove forbidden pet names
             interim_response = re.sub(r'(?i)\b(honey|darling|sweetie)\b[, ]*', '', bot_response).strip()
-            # 2. Reliably bold ALL memes
             formatted_response = re.sub(r'\|\|MEME\|\|(.*?)\|\|/MEME\|\|', r'**\1**', interim_response)
             
             st.markdown(formatted_response)
