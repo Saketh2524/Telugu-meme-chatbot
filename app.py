@@ -12,6 +12,8 @@ import google.generativeai as genai
 import os
 from collections import deque
 import re
+import random
+
 
 # --- 1. CONFIGURATION ---
 try:
@@ -96,10 +98,26 @@ def get_bot_response(user_query, df, collection, chat_history, used_memes):
             search_filter = {"emotion": {"$in": relevant_buckets}}
             
     query_embedding = genai.embed_content(model='models/embedding-001', content=user_query)['embedding']
-    results = collection.query(query_embeddings=[query_embedding], n_results=3, where=search_filter)
-    
-    retrieved_ids = results['ids'][0]
-    retrieved_distances = results['distances'][0]
+    # Query Chroma with more results for variety
+    results = collection.query(
+    query_embeddings=[query_embedding],
+    n_results=7,
+    where=search_filter
+    )
+
+retrieved_ids = results['ids'][0]
+retrieved_distances = results['distances'][0]
+
+# Randomize selection of top memes
+if len(retrieved_ids) > 3:
+    indices = list(range(len(retrieved_ids)))
+    random.shuffle(indices)
+    selected_indices = indices[:3]
+    retrieved_ids = [retrieved_ids[i] for i in selected_indices]
+    retrieved_distances = [retrieved_distances[i] for i in selected_indices]
+
+# Gather the meme texts
+memes = [df.iloc[int(idx)]['dialogue'] for idx in retrieved_ids]
     
     retrieved_contexts = []
     for meme_id in retrieved_ids:
@@ -207,6 +225,7 @@ if meme_df is not None:
                 st.json(debug_info)
         
         st.session_state.messages.append({"role": "assistant", "content": formatted_response})
+
 
 
 
